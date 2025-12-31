@@ -157,7 +157,7 @@ export default async function handler(
     return res.status(200).json(orderStatus);
   }
 
-  // POST request - update order status (untuk admin panel nanti)
+  // POST request - update order status (untuk admin panel)
   if (req.method === 'POST') {
     const { order_number, current_status } = req.body;
 
@@ -171,6 +171,21 @@ export default async function handler(
     // Update mock database
     if (mockDatabase[order_number]) {
       mockDatabase[order_number].current_status = current_status;
+      
+      // Update steps based on new status
+      const stepOrder = ['upload_photo', 'in_progress_1', 'check_delivery', 'in_progress_2', 'check_revision', 'order_complete'];
+      const currentIndex = stepOrder.findIndex(s => s === current_status);
+      
+      mockDatabase[order_number].steps.forEach((step) => {
+        const stepIndex = stepOrder.indexOf(step.id);
+        if (stepIndex < currentIndex) {
+          step.status = 'completed';
+        } else if (stepIndex === currentIndex) {
+          step.status = 'in_progress';
+        } else {
+          step.status = 'pending';
+        }
+      });
 
       return res.status(200).json({
         success: true,
