@@ -1,0 +1,16 @@
+{
+    "name": "bella-order-status-api",
+    "version": "1.0.0",
+    "description": "Mock API for Bella Staging order status",
+    "main": "api/order-status.ts",
+    "scripts": {
+      "dev": "vercel dev"
+    },
+    "dependencies": {
+      "@vercel/node": "^3.0.0"
+    },
+    "devDependencies": {
+      "@types/node": "^20.0.0",
+      "typescript": "^5.0.0"
+    }
+  }
