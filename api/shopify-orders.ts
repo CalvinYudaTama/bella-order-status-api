@@ -46,7 +46,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     // Transform to our format
     const orders = data.orders.map((order: any) => ({
       order_number: order.name,
-      order_id: order.admin_graphql_api_id || `gid://shopify/Order/${order.id}`,
+      order_id: order.id.toString(),
       created_at: order.created_at,
       total_price: order.total_price,
       financial_status: order.financial_status,

@@ -349,12 +349,12 @@ export default function Dashboard() {
                   {orders.map(order => {
                     const completed = order.steps.filter(s => s.status === 'completed').length;
                     const total = order.steps.length;
-                    const percentage = Math.round((completed / total) * 100);
+                    const percentage = total > 0 ? Math.round((completed / total) * 100) : 0;
 
                     return (
                       <tr key={order.order_number} className="hover:bg-gray-50 transition-colors">
                         <td className="py-4 px-6 text-sm font-semibold text-gray-900">{order.order_number}</td>
-                        <td className="py-4 px-6 text-sm text-gray-600 font-mono">{order.order_id.slice(0, 20)}...</td>
+                        <td className="py-4 px-6 text-sm text-gray-600">{order.order_id}</td>
                         <td className="py-4 px-6">
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {order.current_status.replace(/_/g, ' ')}

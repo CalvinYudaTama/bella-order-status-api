@@ -15,17 +15,17 @@ interface Order {
   steps: OrderStep[];
 }
 
-// Mock database
+// Mock database - auto-creates missing orders
 let orders: { [key: string]: Order } = {
   '#1002': {
     order_number: '#1002',
-    order_id: 'gid://shopify/Order/1002',
+    order_id: '6660187521183',
     current_status: 'check_delivery',
     steps: []
   },
   '#1001': {
     order_number: '#1001',
-    order_id: 'gid://shopify/Order/1001',
+    order_id: '6659812294735',
     current_status: 'check_revision',
     steps: []
   }
@@ -103,13 +103,17 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const order = orders[orderNumber];
+    let order = orders[orderNumber];
     
+    // Auto-create order if doesn't exist
     if (!order) {
-      return res.status(404).json({ 
-        error: 'Order not found',
-        message: `Order ${orderNumber} does not exist`
-      });
+      order = {
+        order_number: orderNumber,
+        order_id: orderNumber.replace('#', ''),
+        current_status: 'upload_photo',
+        steps: []
+      };
+      orders[orderNumber] = order;
     }
 
     // Generate steps based on current status
@@ -129,17 +133,22 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    const order = orders[order_number];
+    let order = orders[order_number];
     
+    // Auto-create order if doesn't exist
     if (!order) {
-      return res.status(404).json({ 
-        error: 'Order not found',
-        message: `Order ${order_number} does not exist`
-      });
+      order = {
+        order_number: order_number,
+        order_id: order_number.replace('#', ''),
+        current_status: current_status,
+        steps: []
+      };
+      orders[order_number] = order;
+    } else {
+      // Update existing order
+      order.current_status = current_status;
     }
 
-    // Update the current status
-    order.current_status = current_status;
     order.steps = generateSteps(current_status);
 
     return res.status(200).json({
