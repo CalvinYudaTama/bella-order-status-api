@@ -154,7 +154,9 @@ export default function Dashboard() {
                 >
                   <option value="">Select status...</option>
                   <option value="upload_photo">Upload photo</option>
+                  <option value="in_progress_1">In progress (after upload)</option>
                   <option value="check_delivery">Check delivery</option>
+                  <option value="in_progress_2">In progress (after delivery)</option>
                   <option value="check_revision">Check revision</option>
                   <option value="order_complete">Order complete</option>
                 </select>
