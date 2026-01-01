@@ -28,11 +28,58 @@ export default function Dashboard() {
 
   const loadOrders = async () => {
     try {
+      // Try to fetch from Shopify first
+      const shopifyResponse = await fetch('/api/shopify-orders');
+      
+      if (shopifyResponse.ok) {
+        const shopifyData = await shopifyResponse.json();
+        
+        if (shopifyData.success && shopifyData.orders.length > 0) {
+          // Fetch status for each order (limit to first 10)
+          const ordersWithStatus = await Promise.all(
+            shopifyData.orders.slice(0, 10).map(async (shopifyOrder: any) => {
+              try {
+                const statusResponse = await fetch(`/api/order-status?order=${encodeURIComponent(shopifyOrder.order_number)}`);
+                
+                if (statusResponse.ok) {
+                  return await statusResponse.json();
+                } else {
+                  // Create default order if not found
+                  return {
+                    order_number: shopifyOrder.order_number,
+                    order_id: shopifyOrder.order_id,
+                    current_status: 'upload_photo',
+                    steps: []
+                  };
+                }
+              } catch (error) {
+                // Fallback to default
+                return {
+                  order_number: shopifyOrder.order_number,
+                  order_id: shopifyOrder.order_id,
+                  current_status: 'upload_photo',
+                  steps: []
+                };
+              }
+            })
+          );
+          
+          setOrders(ordersWithStatus);
+          return;
+        }
+      }
+      
+      // Fallback to mock data
       const order1 = await fetch('/api/order-status?order=%231002').then(r => r.json());
       const order2 = await fetch('/api/order-status?order=%231001').then(r => r.json());
       setOrders([order1, order2]);
+      
     } catch (error) {
       console.error('Error loading orders:', error);
+      // Ultimate fallback to mock data
+      const order1 = await fetch('/api/order-status?order=%231002').then(r => r.json());
+      const order2 = await fetch('/api/order-status?order=%231001').then(r => r.json());
+      setOrders([order1, order2]);
     }
   };
 
@@ -104,7 +151,7 @@ export default function Dashboard() {
                 Bella Order Status Dashboard
               </h1>
               <p className="text-sm text-gray-600">
-                Simulate developer apps - Update order status in real-time
+                Manage order status - Auto-sync with Shopify
               </p>
             </div>
           </div>
@@ -154,9 +201,8 @@ export default function Dashboard() {
                 >
                   <option value="">Select status...</option>
                   <option value="upload_photo">Upload photo</option>
-                  <option value="in_progress_1">In progress (after upload)</option>
+                  <option value="in_progress">In progress</option>
                   <option value="check_delivery">Check delivery</option>
-                  <option value="in_progress_2">In progress (after delivery)</option>
                   <option value="check_revision">Check revision</option>
                   <option value="order_complete">Order complete</option>
                 </select>
@@ -184,11 +230,16 @@ export default function Dashboard() {
             <div className="mt-6 pt-6 border-t border-gray-200">
               <div className="bg-gray-50 rounded-lg p-4">
                 <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                  API Endpoint
+                  API Endpoints
                 </h3>
-                <code className="text-sm text-blue-600 break-all font-mono">
-                  POST /api/order-status
-                </code>
+                <div className="space-y-1">
+                  <code className="text-xs text-blue-600 break-all font-mono block">
+                    POST /api/order-status
+                  </code>
+                  <code className="text-xs text-green-600 break-all font-mono block">
+                    GET /api/shopify-orders
+                  </code>
+                </div>
               </div>
             </div>
           </div>
@@ -282,7 +333,7 @@ export default function Dashboard() {
         <div className="mt-6 max-w-7xl mx-auto">
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             <div className="px-6 py-4 border-b border-gray-200">
-              <h2 className="text-xl font-semibold text-gray-900">All Orders</h2>
+              <h2 className="text-xl font-semibold text-gray-900">All Orders ({orders.length})</h2>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full">
@@ -303,7 +354,7 @@ export default function Dashboard() {
                     return (
                       <tr key={order.order_number} className="hover:bg-gray-50 transition-colors">
                         <td className="py-4 px-6 text-sm font-semibold text-gray-900">{order.order_number}</td>
-                        <td className="py-4 px-6 text-sm text-gray-600 font-mono">{order.order_id.slice(0, 8)}...</td>
+                        <td className="py-4 px-6 text-sm text-gray-600 font-mono">{order.order_id.slice(0, 20)}...</td>
                         <td className="py-4 px-6">
                           <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
                             {order.current_status.replace(/_/g, ' ')}

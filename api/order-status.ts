@@ -34,9 +34,8 @@ let orders: { [key: string]: Order } = {
 function generateSteps(currentStatus: string): OrderStep[] {
   const allSteps = [
     'upload_photo',
-    'in_progress_1',
+    'in_progress',
     'check_delivery', 
-    'in_progress_2',
     'check_revision',
     'order_complete'
   ];
@@ -52,7 +51,7 @@ function generateSteps(currentStatus: string): OrderStep[] {
       url: statusIndex >= 0 ? 'https://lookbook.bellavirtualstaging.com/upload' : null
     },
     {
-      id: 'in_progress_1',
+      id: 'in_progress',
       label: 'In progress',
       status: statusIndex === 1 ? 'in_progress' : (statusIndex > 1 ? 'completed' : 'pending'),
       clickable: false,
@@ -66,23 +65,16 @@ function generateSteps(currentStatus: string): OrderStep[] {
       url: statusIndex >= 2 ? 'https://lookbook.bellavirtualstaging.com/delivery' : null
     },
     {
-      id: 'in_progress_2',
-      label: 'In progress',
-      status: statusIndex === 3 ? 'in_progress' : (statusIndex > 3 ? 'completed' : 'pending'),
-      clickable: false,
-      url: null
-    },
-    {
       id: 'check_revision',
       label: 'Check revision',
-      status: statusIndex === 4 ? 'in_progress' : (statusIndex > 4 ? 'completed' : 'pending'),
+      status: statusIndex === 3 ? 'in_progress' : (statusIndex > 3 ? 'completed' : 'pending'),
       clickable: true,
-      url: statusIndex >= 4 ? 'https://lookbook.bellavirtualstaging.com/revision' : null
+      url: statusIndex >= 3 ? 'https://lookbook.bellavirtualstaging.com/revision' : null
     },
     {
       id: 'order_complete',
       label: 'Order complete',
-      status: statusIndex === 5 ? 'in_progress' : (statusIndex > 5 ? 'completed' : 'pending'),
+      status: statusIndex === 4 ? 'in_progress' : (statusIndex > 4 ? 'completed' : 'pending'),
       clickable: false,
       url: null
     }
