@@ -74,7 +74,7 @@ function generateSteps(currentStatus: string): OrderStep[] {
     {
       id: 'order_complete',
       label: 'Order complete',
-      status: statusIndex === 4 ? 'in_progress' : (statusIndex > 4 ? 'completed' : 'pending'),
+      status: statusIndex === 4 ? 'completed' : 'pending',
       clickable: false,
       url: null
     }
@@ -133,6 +133,15 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    // Validate status value
+    const validStatuses = ['upload_photo', 'in_progress', 'check_delivery', 'check_revision', 'order_complete'];
+    if (!validStatuses.includes(current_status)) {
+      return res.status(400).json({
+        error: 'Invalid status',
+        message: `Status must be one of: ${validStatuses.join(', ')}`
+      });
+    }
+
     let order = orders[order_number];
     
     // Auto-create order if doesn't exist
@@ -149,7 +158,8 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       order.current_status = current_status;
     }
 
-    order.steps = generateSteps(current_status);
+    // Generate steps based on updated status
+    order.steps = generateSteps(order.current_status);
 
     return res.status(200).json({
       success: true,
