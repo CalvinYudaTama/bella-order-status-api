@@ -151,7 +151,7 @@ export default function Dashboard() {
                 Bella Order Status Dashboard
               </h1>
               <p className="text-sm text-gray-600">
-                Manage order status - Auto-sync with Shopify
+                Manage order status - Test Using New API
               </p>
             </div>
           </div>
