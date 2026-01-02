@@ -13,10 +13,36 @@ interface Order {
   order_id: string;
   current_status: string;
   steps: OrderStep[];
+  updated_at: string;
 }
 
-// In-memory database (persists during serverless function lifetime)
-const orders: { [key: string]: Order } = {};
+// Global variable - persists across requests in same serverless instance
+const orderStore: { [key: string]: Order } = {};
+
+// Initialize with default orders
+if (Object.keys(orderStore).length === 0) {
+  orderStore['#1003'] = {
+    order_number: '#1003',
+    order_id: '1003',
+    current_status: 'in_progress',
+    steps: [],
+    updated_at: new Date().toISOString()
+  };
+  orderStore['#1002'] = {
+    order_number: '#1002',
+    order_id: '6660187521183',
+    current_status: 'check_delivery',
+    steps: [],
+    updated_at: new Date().toISOString()
+  };
+  orderStore['#1001'] = {
+    order_number: '#1001',
+    order_id: '6659812294735',
+    current_status: 'check_revision',
+    steps: [],
+    updated_at: new Date().toISOString()
+  };
+}
 
 function generateSteps(currentStatus: string): OrderStep[] {
   const allSteps = [
@@ -77,7 +103,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -94,7 +122,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    let order = orders[orderNumber];
+    let order = orderStore[orderNumber];
     
     // Auto-create order if doesn't exist
     if (!order) {
@@ -102,13 +130,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         order_number: orderNumber,
         order_id: orderNumber.replace('#', ''),
         current_status: 'upload_photo',
-        steps: []
+        steps: [],
+        updated_at: new Date().toISOString()
       };
-      orders[orderNumber] = order;
+      orderStore[orderNumber] = order;
     }
 
-    // Generate fresh steps
+    // Generate fresh steps based on current status
     order.steps = generateSteps(order.current_status);
+
+    console.log(`[GET] Order ${orderNumber} - Status: ${order.current_status}`);
 
     return res.status(200).json(order);
   }
@@ -134,7 +165,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
-    let order = orders[order_number];
+    let order = orderStore[order_number];
     
     // Create or update order
     if (!order) {
@@ -142,21 +173,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         order_number: order_number,
         order_id: order_number.replace('#', ''),
         current_status: current_status,
-        steps: []
+        steps: [],
+        updated_at: new Date().toISOString()
       };
-      orders[order_number] = order;
+      orderStore[order_number] = order;
     } else {
       order.current_status = current_status;
+      order.updated_at = new Date().toISOString();
     }
 
     // Generate steps with new status
     order.steps = generateSteps(order.current_status);
 
+    console.log(`[POST] Order ${order_number} updated to: ${current_status}`);
+
     // Return the updated order immediately
     return res.status(200).json({
       success: true,
       message: 'Order status updated successfully',
-      order: order
+      order: order,
+      timestamp: new Date().toISOString()
     });
   }
 
