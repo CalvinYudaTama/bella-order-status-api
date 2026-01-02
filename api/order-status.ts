@@ -15,21 +15,8 @@ interface Order {
   steps: OrderStep[];
 }
 
-// Mock database - auto-creates missing orders
-let orders: { [key: string]: Order } = {
-  '#1002': {
-    order_number: '#1002',
-    order_id: '6660187521183',
-    current_status: 'check_delivery',
-    steps: []
-  },
-  '#1001': {
-    order_number: '#1001',
-    order_id: '6659812294735',
-    current_status: 'check_revision',
-    steps: []
-  }
-};
+// In-memory database (persists during serverless function lifetime)
+const orders: { [key: string]: Order } = {};
 
 function generateSteps(currentStatus: string): OrderStep[] {
   const allSteps = [
@@ -40,53 +27,57 @@ function generateSteps(currentStatus: string): OrderStep[] {
     'order_complete'
   ];
 
-  const statusIndex = allSteps.indexOf(currentStatus);
+  const currentIndex = allSteps.indexOf(currentStatus);
   
-  return [
-    {
-      id: 'upload_photo',
-      label: 'Upload photo',
-      status: statusIndex >= 0 ? 'completed' : 'pending',
-      clickable: true,
-      url: statusIndex >= 0 ? 'https://lookbook.bellavirtualstaging.com/upload' : null
-    },
-    {
-      id: 'in_progress',
-      label: 'In progress',
-      status: statusIndex === 1 ? 'in_progress' : (statusIndex > 1 ? 'completed' : 'pending'),
-      clickable: false,
-      url: null
-    },
-    {
-      id: 'check_delivery',
-      label: 'Check delivery',
-      status: statusIndex === 2 ? 'in_progress' : (statusIndex > 2 ? 'completed' : 'pending'),
-      clickable: true,
-      url: statusIndex >= 2 ? 'https://lookbook.bellavirtualstaging.com/delivery' : null
-    },
-    {
-      id: 'check_revision',
-      label: 'Check revision',
-      status: statusIndex === 3 ? 'in_progress' : (statusIndex > 3 ? 'completed' : 'pending'),
-      clickable: true,
-      url: statusIndex >= 3 ? 'https://lookbook.bellavirtualstaging.com/revision' : null
-    },
-    {
-      id: 'order_complete',
-      label: 'Order complete',
-      status: statusIndex === 4 ? 'completed' : 'pending',
-      clickable: false,
-      url: null
+  return allSteps.map((stepId, index) => {
+    let status: 'completed' | 'in_progress' | 'pending';
+    
+    if (index < currentIndex) {
+      status = 'completed';
+    } else if (index === currentIndex) {
+      status = 'in_progress';
+    } else {
+      status = 'pending';
     }
-  ];
+
+    const stepLabels: { [key: string]: string } = {
+      'upload_photo': 'Upload photo',
+      'in_progress': 'In progress',
+      'check_delivery': 'Check delivery',
+      'check_revision': 'Check revision',
+      'order_complete': 'Order complete'
+    };
+
+    const clickableSteps = ['upload_photo', 'check_delivery', 'check_revision'];
+    const isClickable = clickableSteps.includes(stepId);
+
+    let url: string | null = null;
+    if (isClickable && index <= currentIndex) {
+      const urlMap: { [key: string]: string } = {
+        'upload_photo': 'https://lookbook.bellavirtualstaging.com/upload',
+        'check_delivery': 'https://lookbook.bellavirtualstaging.com/delivery',
+        'check_revision': 'https://lookbook.bellavirtualstaging.com/revision'
+      };
+      url = urlMap[stepId] || null;
+    }
+
+    return {
+      id: stepId,
+      label: stepLabels[stepId] || stepId,
+      status,
+      clickable: isClickable,
+      url
+    };
+  });
 }
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
 
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
@@ -116,7 +107,7 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       orders[orderNumber] = order;
     }
 
-    // Generate steps based on current status
+    // Generate fresh steps
     order.steps = generateSteps(order.current_status);
 
     return res.status(200).json(order);
@@ -138,13 +129,14 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
     if (!validStatuses.includes(current_status)) {
       return res.status(400).json({
         error: 'Invalid status',
-        message: `Status must be one of: ${validStatuses.join(', ')}`
+        message: `Status must be one of: ${validStatuses.join(', ')}`,
+        provided: current_status
       });
     }
 
     let order = orders[order_number];
     
-    // Auto-create order if doesn't exist
+    // Create or update order
     if (!order) {
       order = {
         order_number: order_number,
@@ -154,13 +146,13 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
       };
       orders[order_number] = order;
     } else {
-      // Update existing order
       order.current_status = current_status;
     }
 
-    // Generate steps based on updated status
+    // Generate steps with new status
     order.steps = generateSteps(order.current_status);
 
+    // Return the updated order immediately
     return res.status(200).json({
       success: true,
       message: 'Order status updated successfully',
