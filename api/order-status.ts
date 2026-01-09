@@ -166,7 +166,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'GET') {
-    const orderNumber = req.query.order as string;
+    const orderNumber = decodeURIComponent(req.query.order as string);
     const action = req.query.action as string;
 
     if (action === 'get_all_orders') {
@@ -271,7 +271,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'POST') {
-    const { order_number, current_status, url_link, product_name } = req.body;
+    const order_number = decodeURIComponent(req.body.order_number);
+    const { current_status, url_link, product_name } = req.body;
 
     if (!order_number) {
       return res.status(400).json({ 
