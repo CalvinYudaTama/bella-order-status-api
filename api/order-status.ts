@@ -30,6 +30,11 @@ interface OrderLinkData {
 // Storage for url_link mappings only (not full orders)
 // Real order data comes from Shopify API
 let orderLinks: { [key: string]: OrderLinkData } = {
+  '#1003': {
+    url_link: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/delivery',
+    product_name: 'Virtual Staging',
+    current_status: 'check_delivery'
+  },
   '#1002': {
     url_link: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/delivery',
     product_name: 'Virtual Staging',
