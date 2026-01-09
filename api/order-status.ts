@@ -13,7 +13,6 @@ interface Order {
   order_number: string;
   order_id: string;
   current_status: string;
-  project_id?: string;
   url_link?: string;
   product_name?: string;
   financial_status?: string;
@@ -27,29 +26,12 @@ interface Order {
 }
 
 interface OrderLinkData {
-  project_id?: string;
+  url_link?: string;
   product_name?: string;
   current_status?: string;
-  revision_number?: number;
 }
 
-// Helper: Generate URL based on status and project_id
-function generateURLForStatus(status: string, projectId: string, revisionNumber: number = 1): string {
-  const baseUrl = 'https://lookbook.bellavirtualstaging.com/projects';
-  
-  switch(status) {
-    case 'upload_photo':
-      return `${baseUrl}?page=${projectId}/upload`;
-    case 'check_delivery':
-      return `${baseUrl}?page=${projectId}/delivery`;
-    case 'check_revision':
-      return `${baseUrl}?page=${projectId}/delivery?revision=${revisionNumber}`;
-    default:
-      return `${baseUrl}?page=${projectId}/upload`;
-  }
-}
-
-function generateSteps(currentStatus: string, projectId?: string, revisionNumber: number = 1): OrderStep[] {
+function generateSteps(currentStatus: string, urlLink?: string): OrderStep[] {
   const allSteps = [
     'upload_photo',
     'in_progress',
@@ -66,7 +48,7 @@ function generateSteps(currentStatus: string, projectId?: string, revisionNumber
       label: 'Upload photo',
       status: statusIndex >= 0 ? 'completed' : 'pending',
       clickable: true,
-      url: statusIndex >= 0 && projectId ? generateURLForStatus('upload_photo', projectId) : null
+      url: statusIndex >= 0 && urlLink ? urlLink : null
     },
     {
       id: 'in_progress',
@@ -80,14 +62,14 @@ function generateSteps(currentStatus: string, projectId?: string, revisionNumber
       label: 'Check delivery',
       status: statusIndex === 2 ? 'in_progress' : (statusIndex > 2 ? 'completed' : 'pending'),
       clickable: true,
-      url: statusIndex >= 2 && projectId ? generateURLForStatus('check_delivery', projectId) : null
+      url: statusIndex >= 2 && urlLink ? urlLink : null
     },
     {
       id: 'check_revision',
       label: 'Check revision',
       status: statusIndex === 3 ? 'in_progress' : (statusIndex > 3 ? 'completed' : 'pending'),
       clickable: true,
-      url: statusIndex >= 3 && projectId ? generateURLForStatus('check_revision', projectId, revisionNumber) : null
+      url: statusIndex >= 3 && urlLink ? urlLink : null
     },
     {
       id: 'order_complete',
@@ -194,14 +176,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const ordersWithLinks = await Promise.all(
           shopifyOrders.map(async (shopifyOrder) => {
             const orderNum = shopifyOrder.name;
-            const linkData = await kv.get<OrderLinkData>(`order:${orderNum}`) || {};
+            
+            let linkData: OrderLinkData = {};
+            try {
+              linkData = await kv.get<OrderLinkData>(`order:${orderNum}`) || {};
+            } catch (error) {
+              console.error('KV error, using empty data:', error);
+            }
             
             return {
               order_number: shopifyOrder.name,
               order_id: shopifyOrder.id.toString(),
               current_status: linkData.current_status || 'upload_photo',
-              project_id: linkData.project_id,
-              url_link: linkData.project_id ? generateURLForStatus(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number) : null,
+              url_link: linkData.url_link,
               product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
               financial_status: shopifyOrder.financial_status,
               fulfillment_status: shopifyOrder.fulfillment_status,
@@ -210,7 +197,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
               customer_email: shopifyOrder.customer?.email,
               customer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
               line_items: shopifyOrder.line_items,
-              steps: generateSteps(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number)
+              steps: generateSteps(linkData.current_status || 'upload_photo', linkData.url_link)
             };
           })
         );
@@ -247,14 +234,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      const linkData = await kv.get<OrderLinkData>(`order:${orderNumber}`) || {};
+      let linkData: OrderLinkData = {};
+      try {
+        linkData = await kv.get<OrderLinkData>(`order:${orderNumber}`) || {};
+      } catch (error) {
+        console.error('KV error, using empty data:', error);
+      }
       
       const order: Order = {
         order_number: shopifyOrder.name,
         order_id: shopifyOrder.id.toString(),
         current_status: linkData.current_status || 'upload_photo',
-        project_id: linkData.project_id,
-        url_link: linkData.project_id ? generateURLForStatus(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number) : null,
+        url_link: linkData.url_link,
         product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
         financial_status: shopifyOrder.financial_status,
         fulfillment_status: shopifyOrder.fulfillment_status,
@@ -266,7 +257,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         steps: []
       };
 
-      order.steps = generateSteps(order.current_status, order.project_id, linkData.revision_number);
+      order.steps = generateSteps(order.current_status, order.url_link);
 
       return res.status(200).json(order);
       
@@ -280,7 +271,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'POST') {
-    const { order_number, current_status, project_id, product_name, revision_number } = req.body;
+    const { order_number, current_status, url_link, product_name } = req.body;
 
     if (!order_number) {
       return res.status(400).json({ 
@@ -299,21 +290,28 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      const linkData = await kv.get<OrderLinkData>(`order:${order_number}`) || {};
+      let linkData: OrderLinkData = {};
+      try {
+        linkData = await kv.get<OrderLinkData>(`order:${order_number}`) || {};
+      } catch (error) {
+        console.error('KV error, using empty data:', error);
+      }
 
       if (current_status) linkData.current_status = current_status;
-      if (project_id) linkData.project_id = project_id;
+      if (url_link) linkData.url_link = url_link;
       if (product_name) linkData.product_name = product_name;
-      if (revision_number !== undefined) linkData.revision_number = revision_number;
 
-      await kv.set(`order:${order_number}`, linkData);
+      try {
+        await kv.set(`order:${order_number}`, linkData);
+      } catch (error) {
+        console.error('KV save error:', error);
+      }
 
       const order: Order = {
         order_number: shopifyOrder.name,
         order_id: shopifyOrder.id.toString(),
         current_status: linkData.current_status || 'upload_photo',
-        project_id: linkData.project_id,
-        url_link: linkData.project_id ? generateURLForStatus(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number) : null,
+        url_link: linkData.url_link,
         product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
         financial_status: shopifyOrder.financial_status,
         fulfillment_status: shopifyOrder.fulfillment_status,
@@ -325,7 +323,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         steps: []
       };
 
-      order.steps = generateSteps(order.current_status, order.project_id, linkData.revision_number);
+      order.steps = generateSteps(order.current_status, order.url_link);
 
       return res.status(200).json({
         success: true,
