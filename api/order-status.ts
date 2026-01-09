@@ -35,23 +35,23 @@ interface OrderLinkData {
 // ===== MOCK DATA - EDIT HERE =====
 let orderLinks: { [key: string]: OrderLinkData } = {
   '#1003': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/delivery',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/delivery?revision=1',
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery"',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
     current_status: 'check_delivery',
     product_name: 'Residential 3D Rendering Service'
   },
   '#1002': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page=abc123-uuid-example/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page=abc123-uuid-example/delivery',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page=abc123-uuid-example/delivery?revision=1',
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery"',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
     current_status: 'upload_photo',
     product_name: 'Virtual Staging'
   },
   '#1001': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page=xyz789-uuid-example/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page=xyz789-uuid-example/delivery',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page=xyz789-uuid-example/delivery?revision=2',
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery"',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
     current_status: 'check_revision',
     product_name: 'Floor Plan Service'
   }
