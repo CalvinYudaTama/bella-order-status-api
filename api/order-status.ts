@@ -18,6 +18,9 @@ interface Order {
   fulfillment_status?: string;
   total_price?: string;
   created_at?: string;
+  customer_email?: string;
+  customer_name?: string;
+  line_items?: any[];
   steps: OrderStep[];
 }
 
@@ -133,7 +136,7 @@ async function fetchShopifyOrder(orderNumber: string): Promise<any> {
   }
 }
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -176,6 +179,9 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
           fulfillment_status: shopifyOrder.fulfillment_status,
           total_price: shopifyOrder.total_price,
           created_at: shopifyOrder.created_at,
+          customer_email: shopifyOrder.email,
+          customer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
+          line_items: shopifyOrder.line_items,
           steps: []
         };
       } else {
@@ -250,6 +256,9 @@ export default function handler(req: VercelRequest, res: VercelResponse) {
           fulfillment_status: shopifyOrder.fulfillment_status,
           total_price: shopifyOrder.total_price,
           created_at: shopifyOrder.created_at,
+          customer_email: shopifyOrder.email,
+          customer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
+          line_items: shopifyOrder.line_items,
           steps: []
         };
       } else {
