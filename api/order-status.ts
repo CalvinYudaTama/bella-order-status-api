@@ -98,11 +98,10 @@ async function fetchShopifyOrder(orderNumber: string): Promise<any> {
   const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 
   if (!SHOPIFY_STORE || !ACCESS_TOKEN) {
-    return null; // If no Shopify credentials, return null (will use fallback)
+    return null;
   }
 
   try {
-    // Remove # from order number for Shopify API query
     const orderName = orderNumber.replace('#', '');
     
     const response = await fetch(
@@ -133,7 +132,7 @@ async function fetchShopifyOrder(orderNumber: string): Promise<any> {
   }
 }
 
-export default function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: VercelRequest, res: VercelResponse) {
   // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
