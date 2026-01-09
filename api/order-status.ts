@@ -30,34 +30,30 @@ interface OrderLinkData {
   url_revision: string;
   current_status: string;
   product_name?: string;
-  revision_number?: number;
 }
 
-// ===== MOCK DATA - FULL URLs FOR EACH STATUS =====
+// ===== MOCK DATA - EDIT HERE =====
 let orderLinks: { [key: string]: OrderLinkData } = {
   '#1003': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/delivery',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page=2925b2fe-57d2-4736-a1fc-604f44b82a41/delivery?revision=1',
     current_status: 'check_delivery',
-    product_name: 'Residential 3D Rendering Service',
-    revision_number: 1
+    product_name: 'Residential 3D Rendering Service'
   },
   '#1002': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery',
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page=abc123-uuid-example/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page=abc123-uuid-example/delivery',
     url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page=abc123-uuid-example/delivery?revision=1',
     current_status: 'upload_photo',
-    product_name: 'Virtual Staging',
-    revision_number: 1
+    product_name: 'Virtual Staging'
   },
   '#1001': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page=xyz789-uuid-example/upload',
     url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page=xyz789-uuid-example/delivery',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page=xyz789-uuid-example/delivery?revision=2',
     current_status: 'check_revision',
-    product_name: 'Floor Plan Service',
-    revision_number: 2
+    product_name: 'Floor Plan Service'
   }
 };
 // ===== END MOCK DATA =====
@@ -82,7 +78,7 @@ function generateSteps(
       label: 'Upload photo',
       status: statusIndex >= 0 ? 'completed' : 'pending',
       clickable: true,
-      url: urls.upload  // Always has URL for testing
+      url: urls.upload
     },
     {
       id: 'in_progress',
@@ -96,14 +92,14 @@ function generateSteps(
       label: 'Check delivery',
       status: statusIndex === 2 ? 'in_progress' : (statusIndex > 2 ? 'completed' : 'pending'),
       clickable: true,
-      url: urls.delivery  // Always has URL for testing
+      url: urls.delivery
     },
     {
       id: 'check_revision',
       label: 'Check revision',
       status: statusIndex === 3 ? 'in_progress' : (statusIndex > 3 ? 'completed' : 'pending'),
       clickable: true,
-      url: urls.revision  // Always has URL for testing
+      url: urls.revision
     },
     {
       id: 'order_complete',
@@ -115,7 +111,6 @@ function generateSteps(
   ];
 }
 
-// Helper function to fetch order from Shopify API
 async function fetchShopifyOrder(orderNumber: string): Promise<any> {
   const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
   const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
@@ -156,7 +151,6 @@ async function fetchShopifyOrder(orderNumber: string): Promise<any> {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -178,28 +172,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // 1. Fetch from Shopify API
       const shopifyOrder = await fetchShopifyOrder(orderNumber);
-      
-      // 2. Get URL data from MOCK storage
       const linkData = orderLinks[orderNumber];
       
       if (!linkData) {
         return res.status(404).json({
           error: 'Order not found',
-          message: `No mock data for order ${orderNumber}. Add it to orderLinks object.`
+          message: `No data for order ${orderNumber}`
         });
       }
       
       let order: Order;
       
       if (shopifyOrder) {
-        // Combine Shopify data with our URLs
         order = {
           order_number: shopifyOrder.name,
           order_id: shopifyOrder.id.toString(),
           current_status: linkData.current_status,
-          url_link: linkData.url_delivery, // Main URL
+          url_link: linkData.url_delivery,
           product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
           financial_status: shopifyOrder.financial_status,
           fulfillment_status: shopifyOrder.fulfillment_status,
@@ -211,7 +201,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           steps: []
         };
       } else {
-        // Fallback if no Shopify data
         order = {
           order_number: orderNumber,
           order_id: orderNumber.replace('#', ''),
@@ -222,7 +211,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
       }
 
-      // Generate steps with ALL URLs (for testing all buttons)
       order.steps = generateSteps(
         order.current_status,
         {
@@ -243,16 +231,95 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // POST - Disabled in manual mode
+  // POST - Update order status
   if (req.method === 'POST') {
-    return res.status(200).json({
-      success: true,
-      message: 'POST disabled - Edit mock data in code to update orders'
-    });
+    const { 
+      order_number: rawOrderNumber, 
+      current_status
+    } = req.body;
+    
+    const order_number = rawOrderNumber ? decodeURIComponent(rawOrderNumber) : rawOrderNumber;
+
+    if (!order_number) {
+      return res.status(400).json({ 
+        error: 'Missing required fields',
+        message: 'order_number is required'
+      });
+    }
+
+    try {
+      // Check if order exists in mock data
+      if (!orderLinks[order_number]) {
+        return res.status(404).json({
+          error: 'Order not found',
+          message: `No data for order ${order_number}`
+        });
+      }
+
+      // Update current_status
+      if (current_status) {
+        orderLinks[order_number].current_status = current_status;
+      }
+
+      // Get updated order data
+      const shopifyOrder = await fetchShopifyOrder(order_number);
+      const linkData = orderLinks[order_number];
+
+      let order: Order;
+      
+      if (shopifyOrder) {
+        order = {
+          order_number: shopifyOrder.name,
+          order_id: shopifyOrder.id.toString(),
+          current_status: linkData.current_status,
+          url_link: linkData.url_delivery,
+          product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
+          financial_status: shopifyOrder.financial_status,
+          fulfillment_status: shopifyOrder.fulfillment_status,
+          total_price: shopifyOrder.total_price,
+          created_at: shopifyOrder.created_at,
+          customer_email: shopifyOrder.email,
+          customer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
+          line_items: shopifyOrder.line_items,
+          steps: []
+        };
+      } else {
+        order = {
+          order_number: order_number,
+          order_id: order_number.replace('#', ''),
+          current_status: linkData.current_status,
+          url_link: linkData.url_delivery,
+          product_name: linkData.product_name,
+          steps: []
+        };
+      }
+
+      order.steps = generateSteps(
+        order.current_status,
+        {
+          upload: linkData.url_upload,
+          delivery: linkData.url_delivery,
+          revision: linkData.url_revision
+        }
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: 'Order status updated successfully',
+        order: order
+      });
+      
+    } catch (error) {
+      console.error('Error in POST handler:', error);
+      return res.status(500).json({
+        error: 'Internal server error',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      });
+    }
   }
 
   return res.status(405).json({ 
     error: 'Method not allowed',
-    message: 'Only GET is supported in manual mode'
+    message: 'Only GET and POST methods are supported'
   });
 }
