@@ -12,8 +12,7 @@ interface Order {
   order_number: string;
   order_id: string;
   current_status: string;
-  project_id?: string;
-  revision_number?: number;
+  url_link?: string;
   product_name?: string;
   financial_status?: string;
   fulfillment_status?: string;
@@ -26,43 +25,46 @@ interface Order {
 }
 
 interface OrderLinkData {
-  project_id?: string;
-  revision_number?: number;
+  url_upload: string;
+  url_delivery: string;
+  url_revision: string;
+  current_status: string;
   product_name?: string;
-  current_status?: string;
+  revision_number?: number;
 }
 
-// Clean storage - no mock data!
-// Only stores: project_id, revision_number, current_status
-let orderLinks: { [key: string]: OrderLinkData } = {};
-
-// URL patterns for each status
-const URL_PATTERNS = {
-  upload_photo: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
-  check_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery',
-  check_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}'
+// ===== MOCK DATA - FULL URLs FOR EACH STATUS =====
+let orderLinks: { [key: string]: OrderLinkData } = {
+  '#1003': {
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
+    current_status: 'check_delivery',
+    product_name: 'Residential 3D Rendering Service',
+    revision_number: 1
+  },
+  '#1002': {
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page=abc123-uuid-example/delivery?revision=1',
+    current_status: 'upload_photo',
+    product_name: 'Virtual Staging',
+    revision_number: 1
+  },
+  '#1001': {
+    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page=xyz789-uuid-example/delivery',
+    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
+    current_status: 'check_revision',
+    product_name: 'Floor Plan Service',
+    revision_number: 2
+  }
 };
-
-// Generate URL based on status and project_id
-function generateUrlForStatus(
-  status: string, 
-  projectId?: string, 
-  revisionNumber: number = 1
-): string | null {
-  if (!projectId) return null;
-  
-  const pattern = URL_PATTERNS[status as keyof typeof URL_PATTERNS];
-  if (!pattern) return null;
-  
-  return pattern
-    .replace('{projectId}', projectId)
-    .replace('{revisionNumber}', revisionNumber.toString());
-}
+// ===== END MOCK DATA =====
 
 function generateSteps(
-  currentStatus: string, 
-  projectId?: string,
-  revisionNumber: number = 1
+  currentStatus: string,
+  urls: { upload: string; delivery: string; revision: string }
 ): OrderStep[] {
   const allSteps = [
     'upload_photo',
@@ -80,7 +82,7 @@ function generateSteps(
       label: 'Upload photo',
       status: statusIndex >= 0 ? 'completed' : 'pending',
       clickable: true,
-      url: statusIndex >= 0 ? generateUrlForStatus('upload_photo', projectId) : null
+      url: urls.upload  // Always has URL for testing
     },
     {
       id: 'in_progress',
@@ -94,14 +96,14 @@ function generateSteps(
       label: 'Check delivery',
       status: statusIndex === 2 ? 'in_progress' : (statusIndex > 2 ? 'completed' : 'pending'),
       clickable: true,
-      url: statusIndex >= 2 ? generateUrlForStatus('check_delivery', projectId) : null
+      url: urls.delivery  // Always has URL for testing
     },
     {
       id: 'check_revision',
       label: 'Check revision',
       status: statusIndex === 3 ? 'in_progress' : (statusIndex > 3 ? 'completed' : 'pending'),
       clickable: true,
-      url: statusIndex >= 3 ? generateUrlForStatus('check_revision', projectId, revisionNumber) : null
+      url: urls.revision  // Always has URL for testing
     },
     {
       id: 'order_complete',
@@ -179,19 +181,25 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // 1. Fetch from Shopify API
       const shopifyOrder = await fetchShopifyOrder(orderNumber);
       
-      // 2. Get project data from storage
-      const linkData = orderLinks[orderNumber] || {};
+      // 2. Get URL data from MOCK storage
+      const linkData = orderLinks[orderNumber];
+      
+      if (!linkData) {
+        return res.status(404).json({
+          error: 'Order not found',
+          message: `No mock data for order ${orderNumber}. Add it to orderLinks object.`
+        });
+      }
       
       let order: Order;
       
       if (shopifyOrder) {
-        // Combine Shopify data with our project_id
+        // Combine Shopify data with our URLs
         order = {
           order_number: shopifyOrder.name,
           order_id: shopifyOrder.id.toString(),
-          current_status: linkData.current_status || 'upload_photo',
-          project_id: linkData.project_id,
-          revision_number: linkData.revision_number || 1,
+          current_status: linkData.current_status,
+          url_link: linkData.url_delivery, // Main URL
           product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
           financial_status: shopifyOrder.financial_status,
           fulfillment_status: shopifyOrder.fulfillment_status,
@@ -207,19 +215,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         order = {
           order_number: orderNumber,
           order_id: orderNumber.replace('#', ''),
-          current_status: linkData.current_status || 'upload_photo',
-          project_id: linkData.project_id,
-          revision_number: linkData.revision_number || 1,
+          current_status: linkData.current_status,
+          url_link: linkData.url_delivery,
           product_name: linkData.product_name,
           steps: []
         };
       }
 
-      // Generate steps with dynamic URLs
+      // Generate steps with ALL URLs (for testing all buttons)
       order.steps = generateSteps(
-        order.current_status, 
-        order.project_id,
-        order.revision_number
+        order.current_status,
+        {
+          upload: linkData.url_upload,
+          delivery: linkData.url_delivery,
+          revision: linkData.url_revision
+        }
       );
 
       return res.status(200).json(order);
@@ -233,104 +243,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // POST - Update order status / project_id
+  // POST - Disabled in manual mode
   if (req.method === 'POST') {
-    const { 
-      order_number: rawOrderNumber, 
-      current_status, 
-      project_id,
-      revision_number,
-      product_name 
-    } = req.body;
-    
-    const order_number = rawOrderNumber ? decodeURIComponent(rawOrderNumber) : rawOrderNumber;
-
-    if (!order_number) {
-      return res.status(400).json({ 
-        error: 'Missing required fields',
-        message: 'order_number is required'
-      });
-    }
-
-    try {
-      // Initialize if doesn't exist
-      if (!orderLinks[order_number]) {
-        orderLinks[order_number] = {};
-      }
-
-      // Update fields
-      if (current_status) {
-        orderLinks[order_number].current_status = current_status;
-      }
-      if (project_id) {
-        orderLinks[order_number].project_id = project_id;
-      }
-      if (revision_number !== undefined) {
-        orderLinks[order_number].revision_number = revision_number;
-      }
-      if (product_name) {
-        orderLinks[order_number].product_name = product_name;
-      }
-
-      // Fetch full order data for response
-      const shopifyOrder = await fetchShopifyOrder(order_number);
-      const linkData = orderLinks[order_number];
-
-      let order: Order;
-      
-      if (shopifyOrder) {
-        order = {
-          order_number: shopifyOrder.name,
-          order_id: shopifyOrder.id.toString(),
-          current_status: linkData.current_status || 'upload_photo',
-          project_id: linkData.project_id,
-          revision_number: linkData.revision_number || 1,
-          product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
-          financial_status: shopifyOrder.financial_status,
-          fulfillment_status: shopifyOrder.fulfillment_status,
-          total_price: shopifyOrder.total_price,
-          created_at: shopifyOrder.created_at,
-          customer_email: shopifyOrder.email,
-          customer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
-          line_items: shopifyOrder.line_items,
-          steps: []
-        };
-      } else {
-        order = {
-          order_number: order_number,
-          order_id: order_number.replace('#', ''),
-          current_status: linkData.current_status || 'upload_photo',
-          project_id: linkData.project_id,
-          revision_number: linkData.revision_number || 1,
-          product_name: linkData.product_name,
-          steps: []
-        };
-      }
-
-      // Generate steps with dynamic URLs
-      order.steps = generateSteps(
-        order.current_status,
-        order.project_id,
-        order.revision_number
-      );
-
-      return res.status(200).json({
-        success: true,
-        message: 'Order status updated successfully',
-        order: order
-      });
-      
-    } catch (error) {
-      console.error('Error in POST handler:', error);
-      return res.status(500).json({
-        error: 'Internal server error',
-        message: error instanceof Error ? error.message : 'Unknown error'
-      });
-    }
+    return res.status(200).json({
+      success: true,
+      message: 'POST disabled - Edit mock data in code to update orders'
+    });
   }
 
   return res.status(405).json({ 
     error: 'Method not allowed',
-    message: 'Only GET and POST methods are supported'
+    message: 'Only GET is supported in manual mode'
   });
 }
