@@ -1,4 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
+import { kv } from '@vercel/kv';
 
 interface OrderStep {
   id: string;
@@ -12,6 +13,7 @@ interface Order {
   order_number: string;
   order_id: string;
   current_status: string;
+  project_id?: string;
   url_link?: string;
   product_name?: string;
   financial_status?: string;
@@ -25,16 +27,29 @@ interface Order {
 }
 
 interface OrderLinkData {
-  url_link?: string;
+  project_id?: string;
   product_name?: string;
   current_status?: string;
+  revision_number?: number;
 }
 
-// Storage for url_link mappings only - NO HARDCODED DATA
-// Order data comes from Shopify API automatically
-let orderLinks: { [key: string]: OrderLinkData } = {};
+// Helper: Generate URL based on status and project_id
+function generateURLForStatus(status: string, projectId: string, revisionNumber: number = 1): string {
+  const baseUrl = 'https://lookbook.bellavirtualstaging.com/projects';
+  
+  switch(status) {
+    case 'upload_photo':
+      return `${baseUrl}?page=${projectId}/upload`;
+    case 'check_delivery':
+      return `${baseUrl}?page=${projectId}/delivery`;
+    case 'check_revision':
+      return `${baseUrl}?page=${projectId}/delivery?revision=${revisionNumber}`;
+    default:
+      return `${baseUrl}?page=${projectId}/upload`;
+  }
+}
 
-function generateSteps(currentStatus: string, urlLink?: string): OrderStep[] {
+function generateSteps(currentStatus: string, projectId?: string, revisionNumber: number = 1): OrderStep[] {
   const allSteps = [
     'upload_photo',
     'in_progress',
@@ -51,7 +66,7 @@ function generateSteps(currentStatus: string, urlLink?: string): OrderStep[] {
       label: 'Upload photo',
       status: statusIndex >= 0 ? 'completed' : 'pending',
       clickable: true,
-      url: statusIndex >= 0 && urlLink ? urlLink : null
+      url: statusIndex >= 0 && projectId ? generateURLForStatus('upload_photo', projectId) : null
     },
     {
       id: 'in_progress',
@@ -65,14 +80,14 @@ function generateSteps(currentStatus: string, urlLink?: string): OrderStep[] {
       label: 'Check delivery',
       status: statusIndex === 2 ? 'in_progress' : (statusIndex > 2 ? 'completed' : 'pending'),
       clickable: true,
-      url: statusIndex >= 2 && urlLink ? urlLink : null
+      url: statusIndex >= 2 && projectId ? generateURLForStatus('check_delivery', projectId) : null
     },
     {
       id: 'check_revision',
       label: 'Check revision',
       status: statusIndex === 3 ? 'in_progress' : (statusIndex > 3 ? 'completed' : 'pending'),
       clickable: true,
-      url: statusIndex >= 3 && urlLink ? urlLink : null
+      url: statusIndex >= 3 && projectId ? generateURLForStatus('check_revision', projectId, revisionNumber) : null
     },
     {
       id: 'order_complete',
@@ -84,7 +99,6 @@ function generateSteps(currentStatus: string, urlLink?: string): OrderStep[] {
   ];
 }
 
-// Helper function to fetch order from Shopify API
 async function fetchShopifyOrder(orderNumber: string): Promise<any> {
   const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
   const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
@@ -125,7 +139,6 @@ async function fetchShopifyOrder(orderNumber: string): Promise<any> {
   }
 }
 
-// Helper function to fetch ALL orders from Shopify
 async function fetchAllShopifyOrders(limit: number = 250): Promise<any[]> {
   const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
   const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
@@ -161,7 +174,6 @@ async function fetchAllShopifyOrders(limit: number = 250): Promise<any[]> {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Enable CORS
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -171,37 +183,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
-  // GET - Retrieve order status (single order)
   if (req.method === 'GET') {
     const orderNumber = req.query.order as string;
     const action = req.query.action as string;
 
-    // Special action: Get all orders
     if (action === 'get_all_orders') {
       try {
         const shopifyOrders = await fetchAllShopifyOrders();
         
-        // Combine Shopify data with our url_link mappings
-        const ordersWithLinks = shopifyOrders.map((shopifyOrder) => {
-          const orderNum = shopifyOrder.name;
-          const linkData = orderLinks[orderNum] || {};
-          
-          return {
-            order_number: shopifyOrder.name,
-            order_id: shopifyOrder.id.toString(),
-            current_status: linkData.current_status || 'upload_photo',
-            url_link: linkData.url_link,
-            product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
-            financial_status: shopifyOrder.financial_status,
-            fulfillment_status: shopifyOrder.fulfillment_status,
-            total_price: shopifyOrder.total_price,
-            created_at: shopifyOrder.created_at,
-            customer_email: shopifyOrder.customer?.email,
-            customer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
-            line_items: shopifyOrder.line_items,
-            steps: generateSteps(linkData.current_status || 'upload_photo', linkData.url_link)
-          };
-        });
+        const ordersWithLinks = await Promise.all(
+          shopifyOrders.map(async (shopifyOrder) => {
+            const orderNum = shopifyOrder.name;
+            const linkData = await kv.get<OrderLinkData>(`order:${orderNum}`) || {};
+            
+            return {
+              order_number: shopifyOrder.name,
+              order_id: shopifyOrder.id.toString(),
+              current_status: linkData.current_status || 'upload_photo',
+              project_id: linkData.project_id,
+              url_link: linkData.project_id ? generateURLForStatus(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number) : null,
+              product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
+              financial_status: shopifyOrder.financial_status,
+              fulfillment_status: shopifyOrder.fulfillment_status,
+              total_price: shopifyOrder.total_price,
+              created_at: shopifyOrder.created_at,
+              customer_email: shopifyOrder.customer?.email,
+              customer_name: `${shopifyOrder.customer?.first_name || ''} ${shopifyOrder.customer?.last_name || ''}`.trim(),
+              line_items: shopifyOrder.line_items,
+              steps: generateSteps(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number)
+            };
+          })
+        );
 
         return res.status(200).json({
           success: true,
@@ -218,7 +230,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
     }
 
-    // Single order query
     if (!orderNumber) {
       return res.status(400).json({ 
         error: 'Order number is required',
@@ -227,7 +238,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // Fetch from Shopify API
       const shopifyOrder = await fetchShopifyOrder(orderNumber);
       
       if (!shopifyOrder) {
@@ -237,14 +247,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
 
-      // Get url_link data from our storage
-      const linkData = orderLinks[orderNumber] || {};
+      const linkData = await kv.get<OrderLinkData>(`order:${orderNumber}`) || {};
       
       const order: Order = {
         order_number: shopifyOrder.name,
         order_id: shopifyOrder.id.toString(),
         current_status: linkData.current_status || 'upload_photo',
-        url_link: linkData.url_link,
+        project_id: linkData.project_id,
+        url_link: linkData.project_id ? generateURLForStatus(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number) : null,
         product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
         financial_status: shopifyOrder.financial_status,
         fulfillment_status: shopifyOrder.fulfillment_status,
@@ -256,8 +266,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         steps: []
       };
 
-      // Generate steps based on current status
-      order.steps = generateSteps(order.current_status, order.url_link);
+      order.steps = generateSteps(order.current_status, order.project_id, linkData.revision_number);
 
       return res.status(200).json(order);
       
@@ -270,9 +279,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // POST - Update order status / url_link
   if (req.method === 'POST') {
-    const { order_number, current_status, url_link, product_name } = req.body;
+    const { order_number, current_status, project_id, product_name, revision_number } = req.body;
 
     if (!order_number) {
       return res.status(400).json({ 
@@ -282,39 +290,30 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // Verify order exists in Shopify first
       const shopifyOrder = await fetchShopifyOrder(order_number);
       
       if (!shopifyOrder) {
         return res.status(404).json({
           error: 'Order not found',
-          message: `Order ${order_number} not found in Shopify. Cannot update status.`
+          message: `Order ${order_number} not found in Shopify`
         });
       }
 
-      // Initialize if doesn't exist
-      if (!orderLinks[order_number]) {
-        orderLinks[order_number] = {};
-      }
+      const linkData = await kv.get<OrderLinkData>(`order:${order_number}`) || {};
 
-      // Update only the fields that are provided
-      if (current_status) {
-        orderLinks[order_number].current_status = current_status;
-      }
-      if (url_link) {
-        orderLinks[order_number].url_link = url_link;
-      }
-      if (product_name) {
-        orderLinks[order_number].product_name = product_name;
-      }
+      if (current_status) linkData.current_status = current_status;
+      if (project_id) linkData.project_id = project_id;
+      if (product_name) linkData.product_name = product_name;
+      if (revision_number !== undefined) linkData.revision_number = revision_number;
 
-      const linkData = orderLinks[order_number];
+      await kv.set(`order:${order_number}`, linkData);
 
       const order: Order = {
         order_number: shopifyOrder.name,
         order_id: shopifyOrder.id.toString(),
         current_status: linkData.current_status || 'upload_photo',
-        url_link: linkData.url_link,
+        project_id: linkData.project_id,
+        url_link: linkData.project_id ? generateURLForStatus(linkData.current_status || 'upload_photo', linkData.project_id, linkData.revision_number) : null,
         product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
         financial_status: shopifyOrder.financial_status,
         fulfillment_status: shopifyOrder.fulfillment_status,
@@ -326,7 +325,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         steps: []
       };
 
-      order.steps = generateSteps(order.current_status, order.url_link);
+      order.steps = generateSteps(order.current_status, order.project_id, linkData.revision_number);
 
       return res.status(200).json({
         success: true,
