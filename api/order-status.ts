@@ -235,7 +235,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method === 'POST') {
     const { 
       order_number: rawOrderNumber, 
-      current_status
+      current_status,
+      url_link  // Receive url_link from POST request
     } = req.body;
     
     const order_number = rawOrderNumber ? decodeURIComponent(rawOrderNumber) : rawOrderNumber;
@@ -248,12 +249,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // Check if order exists in mock data
+      // Check if order exists in mock data, create if doesn't exist
       if (!orderLinks[order_number]) {
-        return res.status(404).json({
-          error: 'Order not found',
-          message: `No data for order ${order_number}`
-        });
+        // Initialize with default URLs if order doesn't exist
+        orderLinks[order_number] = {
+          url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
+          url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery',
+          url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
+          current_status: current_status || 'upload_photo',
+          product_name: undefined
+        };
       }
 
       // Update current_status
@@ -261,10 +266,37 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         orderLinks[order_number].current_status = current_status;
       }
 
-      // Get updated order data
+      // Update URL based on current_status
+      // This maps the POST url_link to the appropriate URL field in orderLinks
+      if (url_link && current_status) {
+        if (current_status === 'upload_photo') {
+          orderLinks[order_number].url_upload = url_link;
+        } else if (current_status === 'check_delivery') {
+          orderLinks[order_number].url_delivery = url_link;
+        } else if (current_status === 'check_revision') {
+          orderLinks[order_number].url_revision = url_link;
+        }
+        // Note: For 'in_progress' and 'order_complete', we don't update URLs as they don't have clickable links
+      }
+
+      // Get updated order data (after URL updates)
       const shopifyOrder = await fetchShopifyOrder(order_number);
       const linkData = orderLinks[order_number];
 
+      // Determine which URL to use for url_link based on current_status
+      // Use the updated URL from linkData (updated by POST url_link)
+      let urlLinkForResponse: string;
+      if (linkData.current_status === 'upload_photo') {
+        urlLinkForResponse = linkData.url_upload;  // Use updated URL from linkData
+      } else if (linkData.current_status === 'check_delivery') {
+        urlLinkForResponse = linkData.url_delivery;  // Use updated URL from linkData
+      } else if (linkData.current_status === 'check_revision') {
+        urlLinkForResponse = linkData.url_revision;  // Use updated URL from linkData
+      } else {
+        // Default to delivery URL
+        urlLinkForResponse = linkData.url_delivery;
+      }
+      
       let order: Order;
       
       if (shopifyOrder) {
@@ -272,7 +304,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           order_number: shopifyOrder.name,
           order_id: shopifyOrder.id.toString(),
           current_status: linkData.current_status,
-          url_link: linkData.url_delivery,
+          url_link: urlLinkForResponse,  // Use dynamically determined URL
           product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
           financial_status: shopifyOrder.financial_status,
           fulfillment_status: shopifyOrder.fulfillment_status,
@@ -288,7 +320,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           order_number: order_number,
           order_id: order_number.replace('#', ''),
           current_status: linkData.current_status,
-          url_link: linkData.url_delivery,
+          url_link: urlLinkForResponse,  // Use dynamically determined URL
           product_name: linkData.product_name,
           steps: []
         };
