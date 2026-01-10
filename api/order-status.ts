@@ -76,7 +76,7 @@ function generateSteps(
     {
       id: 'upload_photo',
       label: 'Upload photo',
-      status: statusIndex >= 0 ? 'completed' : 'pending',
+      status: statusIndex === 0 ? 'in_progress' : (statusIndex > 0 ? 'completed' : 'pending'),
       clickable: true,
       url: urls.upload
     },
