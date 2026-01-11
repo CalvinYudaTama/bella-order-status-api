@@ -32,31 +32,11 @@ interface OrderLinkData {
   product_name?: string;
 }
 
-// ===== MOCK DATA - EDIT HERE =====
-let orderLinks: { [key: string]: OrderLinkData } = {
-  '#1003': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery"',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
-    current_status: 'check_delivery',
-    product_name: 'Residential 3D Rendering Service'
-  },
-  '#1002': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery"',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
-    current_status: 'upload_photo',
-    product_name: 'Virtual Staging'
-  },
-  '#1001': {
-    url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
-    url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery"',
-    url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
-    current_status: 'check_revision',
-    product_name: 'Floor Plan Service'
-  }
-};
-// ===== END MOCK DATA =====
+// ===== IN-MEMORY STORAGE - Will be populated by Riley webhook =====
+// ⚠️ WARNING: Data will be lost on Vercel instance restart
+// For production, replace with database (PostgreSQL, MongoDB, etc.)
+let orderLinks: { [key: string]: OrderLinkData } = {};
+// ===== END STORAGE =====
 
 function generateSteps(
   currentStatus: string,
@@ -151,6 +131,7 @@ async function fetchShopifyOrder(orderNumber: string): Promise<any> {
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
+  // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -160,7 +141,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
-  // GET - Retrieve order status
+  // GET - Retrieve order status (Called by Shopify frontend)
   if (req.method === 'GET') {
     const orderNumber = decodeURIComponent(req.query.order as string);
     
@@ -172,15 +153,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      const shopifyOrder = await fetchShopifyOrder(orderNumber);
       const linkData = orderLinks[orderNumber];
       
+      // Order not found - Riley hasn't pushed data yet
       if (!linkData) {
         return res.status(404).json({
           error: 'Order not found',
-          message: `No data for order ${orderNumber}`
+          message: `No tracking data available for order ${orderNumber}. Please wait for Riley to process this order.`,
+          order_number: orderNumber
         });
       }
+      
+      // Optional: Fetch additional details from Shopify
+      const shopifyOrder = await fetchShopifyOrder(orderNumber);
       
       let order: Order;
       
@@ -231,16 +216,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // POST - Update order status
+  // POST - Update order status (Called by Riley webhook)
   if (req.method === 'POST') {
     const { 
       order_number: rawOrderNumber, 
       current_status,
-      url_link  // Receive url_link from POST request
+      url_link,
+      product_name
     } = req.body;
     
     const order_number = rawOrderNumber ? decodeURIComponent(rawOrderNumber) : rawOrderNumber;
 
+    // Validate required fields
     if (!order_number) {
       return res.status(400).json({ 
         error: 'Missing required fields',
@@ -249,51 +236,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // Check if order exists in mock data, create if doesn't exist
+      // Create order entry if doesn't exist
       if (!orderLinks[order_number]) {
-        // Initialize with default URLs if order doesn't exist
+        console.log(`Creating new order entry: ${order_number}`);
         orderLinks[order_number] = {
-          url_upload: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/upload',
-          url_delivery: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery',
-          url_revision: 'https://lookbook.bellavirtualstaging.com/projects?page={projectId}/delivery?revision={revisionNumber}',
+          url_upload: '',
+          url_delivery: '',
+          url_revision: '',
           current_status: current_status || 'upload_photo',
-          product_name: undefined
+          product_name: product_name
         };
       }
 
       // Update current_status
       if (current_status) {
         orderLinks[order_number].current_status = current_status;
+        console.log(`Updated status for ${order_number}: ${current_status}`);
+      }
+
+      // Update product_name if provided
+      if (product_name) {
+        orderLinks[order_number].product_name = product_name;
       }
 
       // Update URL based on current_status
-      // This maps the POST url_link to the appropriate URL field in orderLinks
       if (url_link && current_status) {
         if (current_status === 'upload_photo') {
           orderLinks[order_number].url_upload = url_link;
+          console.log(`Updated upload URL for ${order_number}`);
         } else if (current_status === 'check_delivery') {
           orderLinks[order_number].url_delivery = url_link;
+          console.log(`Updated delivery URL for ${order_number}`);
         } else if (current_status === 'check_revision') {
           orderLinks[order_number].url_revision = url_link;
+          console.log(`Updated revision URL for ${order_number}`);
         }
-        // Note: For 'in_progress' and 'order_complete', we don't update URLs as they don't have clickable links
       }
 
-      // Get updated order data (after URL updates)
+      // Fetch Shopify order details (optional enrichment)
       const shopifyOrder = await fetchShopifyOrder(order_number);
       const linkData = orderLinks[order_number];
 
       // Determine which URL to use for url_link based on current_status
-      // Use the updated URL from linkData (updated by POST url_link)
       let urlLinkForResponse: string;
       if (linkData.current_status === 'upload_photo') {
-        urlLinkForResponse = linkData.url_upload;  // Use updated URL from linkData
+        urlLinkForResponse = linkData.url_upload;
       } else if (linkData.current_status === 'check_delivery') {
-        urlLinkForResponse = linkData.url_delivery;  // Use updated URL from linkData
+        urlLinkForResponse = linkData.url_delivery;
       } else if (linkData.current_status === 'check_revision') {
-        urlLinkForResponse = linkData.url_revision;  // Use updated URL from linkData
+        urlLinkForResponse = linkData.url_revision;
       } else {
-        // Default to delivery URL
         urlLinkForResponse = linkData.url_delivery;
       }
       
@@ -304,7 +296,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           order_number: shopifyOrder.name,
           order_id: shopifyOrder.id.toString(),
           current_status: linkData.current_status,
-          url_link: urlLinkForResponse,  // Use dynamically determined URL
+          url_link: urlLinkForResponse,
           product_name: linkData.product_name || shopifyOrder.line_items?.[0]?.name,
           financial_status: shopifyOrder.financial_status,
           fulfillment_status: shopifyOrder.fulfillment_status,
@@ -320,7 +312,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           order_number: order_number,
           order_id: order_number.replace('#', ''),
           current_status: linkData.current_status,
-          url_link: urlLinkForResponse,  // Use dynamically determined URL
+          url_link: urlLinkForResponse,
           product_name: linkData.product_name,
           steps: []
         };
