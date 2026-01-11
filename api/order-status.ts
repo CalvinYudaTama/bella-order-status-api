@@ -32,7 +32,7 @@ interface OrderLinkData {
   product_name?: string;
 }
 
-// ===== IN-MEMORY STORAGE - Will be populated by Riley webhook =====
+// ===== IN-MEMORY STORAGE =====
 // ⚠️ WARNING: Data will be lost on Vercel instance restart
 // For production, replace with database (PostgreSQL, MongoDB, etc.)
 let orderLinks: { [key: string]: OrderLinkData } = {};
@@ -130,8 +130,82 @@ async function fetchShopifyOrder(orderNumber: string): Promise<any> {
   }
 }
 
+async function addShopifyOrderTag(
+  orderNumber: string, 
+  tag: string
+): Promise<boolean> {
+  const SHOPIFY_STORE = process.env.SHOPIFY_STORE;
+  const ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+
+  if (!SHOPIFY_STORE || !ACCESS_TOKEN) {
+    console.warn('Shopify credentials not configured for tagging');
+    return false;
+  }
+
+  try {
+    console.log(`[SHOPIFY TAG] Starting tag process for order ${orderNumber}`);
+    
+    // Find the order
+    const order = await fetchShopifyOrder(orderNumber);
+    
+    if (!order) {
+      console.warn(`[SHOPIFY TAG] Order ${orderNumber} not found in Shopify`);
+      return false;
+    }
+
+    console.log(`[SHOPIFY TAG] Found order ID: ${order.id}`);
+    
+    // Get existing tags
+    const existingTags = order.tags ? order.tags.split(', ').map(t => t.trim()) : [];
+    console.log(`[SHOPIFY TAG] Existing tags:`, existingTags);
+    
+    // Check if tag already exists
+    if (existingTags.includes(tag)) {
+      console.log(`[SHOPIFY TAG] Tag "${tag}" already exists on order ${orderNumber}`);
+      return true;
+    }
+    
+    // Add new tag
+    existingTags.push(tag);
+    const newTags = existingTags.join(', ');
+    
+    console.log(`[SHOPIFY TAG] New tags string:`, newTags);
+    
+    // Update order with new tag
+    const updateResponse = await fetch(
+      `https://${SHOPIFY_STORE}/admin/api/2024-01/orders/${order.id}.json`,
+      {
+        method: 'PUT',
+        headers: {
+          'X-Shopify-Access-Token': ACCESS_TOKEN,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          order: {
+            id: order.id,
+            tags: newTags
+          }
+        })
+      }
+    );
+
+    if (!updateResponse.ok) {
+      const errorText = await updateResponse.text();
+      console.error(`[SHOPIFY TAG] Failed to update order: ${updateResponse.status}`, errorText);
+      return false;
+    }
+
+    console.log(`[SHOPIFY TAG] ✅ Successfully added tag "${tag}" to order ${orderNumber}`);
+    console.log(`[SHOPIFY TAG] 🔔 Shopify Flow should be triggered now!`);
+    return true;
+
+  } catch (error) {
+    console.error('[SHOPIFY TAG] Error adding tag:', error);
+    return false;
+  }
+}
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,OPTIONS');
@@ -155,7 +229,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     try {
       const linkData = orderLinks[orderNumber];
       
-      // Order not found - Riley hasn't pushed data yet
       if (!linkData) {
         return res.status(404).json({
           error: 'Order not found',
@@ -164,7 +237,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         });
       }
       
-      // Optional: Fetch additional details from Shopify
       const shopifyOrder = await fetchShopifyOrder(orderNumber);
       
       let order: Order;
@@ -221,13 +293,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { 
       order_number: rawOrderNumber, 
       current_status,
-      url_link,
+      url,          // Riley sends this
+      url_link,     // Backward compatibility
       product_name
     } = req.body;
     
-    const order_number = rawOrderNumber ? decodeURIComponent(rawOrderNumber) : rawOrderNumber;
+    // Handle order number formatting
+    let order_number = rawOrderNumber ? decodeURIComponent(rawOrderNumber) : rawOrderNumber;
+    
+    // Auto-add # if not present (Riley sends "1002" not "#1002")
+    if (order_number && !order_number.startsWith('#')) {
+      order_number = '#' + order_number;
+    }
 
-    // Validate required fields
     if (!order_number) {
       return res.status(400).json({ 
         error: 'Missing required fields',
@@ -236,9 +314,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      // Create order entry if doesn't exist
+      console.log(`\n========================================`);
+      console.log(`[POST] Received webhook from Riley`);
+      console.log(`[POST] Raw order_number: ${rawOrderNumber}`);
+      console.log(`[POST] Processed order_number: ${order_number}`);
+      console.log(`[POST] Status: ${current_status}`);
+      console.log(`[POST] URL field: ${url ? 'url' : url_link ? 'url_link' : 'none'}`);
+      console.log(`[POST] URL value: ${url || url_link || 'N/A'}`);
+      console.log(`========================================\n`);
+
+      // Use url or url_link (Riley compatibility)
+      const linkUrl = url || url_link;
+
+      // Create or update order entry
       if (!orderLinks[order_number]) {
-        console.log(`Creating new order entry: ${order_number}`);
+        console.log(`[POST] Creating new order entry: ${order_number}`);
         orderLinks[order_number] = {
           url_upload: '',
           url_delivery: '',
@@ -248,36 +338,55 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         };
       }
 
-      // Update current_status
+      // Update status
       if (current_status) {
         orderLinks[order_number].current_status = current_status;
-        console.log(`Updated status for ${order_number}: ${current_status}`);
+        console.log(`[POST] ✅ Updated status to: ${current_status}`);
       }
 
-      // Update product_name if provided
+      // Update product name
       if (product_name) {
         orderLinks[order_number].product_name = product_name;
+        console.log(`[POST] ✅ Updated product name: ${product_name}`);
       }
 
-      // Update URL based on current_status
-      if (url_link && current_status) {
+      // Update URL based on status
+      if (linkUrl && current_status) {
         if (current_status === 'upload_photo') {
-          orderLinks[order_number].url_upload = url_link;
-          console.log(`Updated upload URL for ${order_number}`);
+          orderLinks[order_number].url_upload = linkUrl;
+          console.log(`[POST] ✅ Updated upload URL`);
         } else if (current_status === 'check_delivery') {
-          orderLinks[order_number].url_delivery = url_link;
-          console.log(`Updated delivery URL for ${order_number}`);
+          orderLinks[order_number].url_delivery = linkUrl;
+          console.log(`[POST] ✅ Updated delivery URL`);
         } else if (current_status === 'check_revision') {
-          orderLinks[order_number].url_revision = url_link;
-          console.log(`Updated revision URL for ${order_number}`);
+          orderLinks[order_number].url_revision = linkUrl;
+          console.log(`[POST] ✅ Updated revision URL`);
         }
       }
 
-      // Fetch Shopify order details (optional enrichment)
+      // ===== TRIGGER SHOPIFY FLOW WHEN ORDER COMPLETE =====
+      if (current_status === 'order_complete') {
+        console.log(`\n🎯 [FLOW TRIGGER] Order ${order_number} is COMPLETE!`);
+        console.log(`🎯 [FLOW TRIGGER] Attempting to add Shopify tag...`);
+        
+        const tagSuccess = await addShopifyOrderTag(order_number, 'bella-order-complete');
+        
+        if (tagSuccess) {
+          console.log(`✅ [FLOW TRIGGER] SUCCESS! Tag added to Shopify order`);
+          console.log(`✅ [FLOW TRIGGER] Shopify Flow should trigger email now`);
+          console.log(`✅ [FLOW TRIGGER] Customer will receive completion email\n`);
+        } else {
+          console.warn(`⚠️ [FLOW TRIGGER] FAILED to add tag`);
+          console.warn(`⚠️ [FLOW TRIGGER] Shopify Flow will NOT trigger`);
+          console.warn(`⚠️ [FLOW TRIGGER] Check Shopify credentials and order number\n`);
+        }
+      }
+
+      // Build response
       const shopifyOrder = await fetchShopifyOrder(order_number);
       const linkData = orderLinks[order_number];
 
-      // Determine which URL to use for url_link based on current_status
+      // Determine which URL to return based on current status
       let urlLinkForResponse: string;
       if (linkData.current_status === 'upload_photo') {
         urlLinkForResponse = linkData.url_upload;
@@ -327,14 +436,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         }
       );
 
+      console.log(`[POST] ✅ Order ${order_number} webhook processed successfully\n`);
+
       return res.status(200).json({
         success: true,
         message: 'Order status updated successfully',
+        shopify_tag_added: current_status === 'order_complete',
         order: order
       });
       
     } catch (error) {
-      console.error('Error in POST handler:', error);
+      console.error('[POST] ❌ Error processing webhook:', error);
       return res.status(500).json({
         error: 'Internal server error',
         message: error instanceof Error ? error.message : 'Unknown error'
